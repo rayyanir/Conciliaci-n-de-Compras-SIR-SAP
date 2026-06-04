@@ -39,15 +39,84 @@ def _allowed(filename):
 
 # ── Configuración SMTP / CC ────────────────────────────────────────────────────
 
+def load_env_file():
+    env_path = os.path.join(BASE_DIR, '.env')
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    if '=' in line:
+                        k, v = line.split('=', 1)
+                        key = k.strip()
+                        if key.startswith('\ufeff'):
+                            key = key[1:]
+                        if key:
+                            val = v.strip()
+                            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                                val = val[1:-1]
+                            os.environ[key] = val
+        except Exception:
+            pass
+
+def save_smtp_to_env(smtp_cfg):
+    env_lines = [
+        f"SMTP_HOST={smtp_cfg.get('host', '')}",
+        f"SMTP_PORT={smtp_cfg.get('port', '587')}",
+        f"SMTP_USER={smtp_cfg.get('user', '')}",
+        f"SMTP_PASSWORD={smtp_cfg.get('password', '')}",
+        f"SMTP_FROM_ADDR={smtp_cfg.get('from_addr', '')}",
+        f"SMTP_USE_TLS={'true' if smtp_cfg.get('use_tls') else 'false'}",
+        f"SMTP_USE_SSL={'true' if smtp_cfg.get('use_ssl') else 'false'}",
+        f"SMTP_NO_AUTH={'true' if smtp_cfg.get('no_auth') else 'false'}"
+    ]
+    with open(os.path.join(BASE_DIR, '.env'), 'w', encoding='utf-8') as f:
+        f.write('\n'.join(env_lines) + '\n')
+
 def load_config():
+    load_env_file()
+    cfg = {}
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, encoding='utf-8') as f:
-            return json.load(f)
-    return {'smtp': {}, 'cost_centers': {}}
+        try:
+            with open(CONFIG_FILE, encoding='utf-8') as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    cfg = loaded
+        except Exception:
+            pass
+            
+    # Ensure all required keys exist and are of correct types
+    if 'smtp' not in cfg or not isinstance(cfg['smtp'], dict):
+        cfg['smtp'] = {}
+    if 'cost_centers' not in cfg or not isinstance(cfg['cost_centers'], dict):
+        cfg['cost_centers'] = {}
+    if 'fixed_cc' not in cfg or not isinstance(cfg['fixed_cc'], list):
+        cfg['fixed_cc'] = []
+        
+    # Populate SMTP settings from environment variables with fallback
+    cfg['smtp']['host'] = os.environ.get('SMTP_HOST', cfg['smtp'].get('host', ''))
+    cfg['smtp']['port'] = os.environ.get('SMTP_PORT', cfg['smtp'].get('port', '587'))
+    cfg['smtp']['user'] = os.environ.get('SMTP_USER', cfg['smtp'].get('user', ''))
+    cfg['smtp']['password'] = os.environ.get('SMTP_PASSWORD', cfg['smtp'].get('password', ''))
+    cfg['smtp']['from_addr'] = os.environ.get('SMTP_FROM_ADDR', cfg['smtp'].get('from_addr', ''))
+    
+    # Booleans
+    cfg['smtp']['use_tls'] = os.environ.get('SMTP_USE_TLS', 'true' if cfg['smtp'].get('use_tls') else 'false').lower() in ('true', '1', 'yes')
+    cfg['smtp']['use_ssl'] = os.environ.get('SMTP_USE_SSL', 'true' if cfg['smtp'].get('use_ssl') else 'false').lower() in ('true', '1', 'yes')
+    cfg['smtp']['no_auth'] = os.environ.get('SMTP_NO_AUTH', 'true' if cfg['smtp'].get('no_auth') else 'false').lower() in ('true', '1', 'yes')
+    
+    return cfg
 
 def save_config(cfg):
+    smtp_cfg = cfg.get('smtp', {})
+    if smtp_cfg:
+        save_smtp_to_env(smtp_cfg)
+        
+    clean_cfg = {k: v for k, v in cfg.items() if k != 'smtp'}
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+        json.dump(clean_cfg, f, indent=2, ensure_ascii=False)
 
 # ── Envío de correo ────────────────────────────────────────────────────────────
 
