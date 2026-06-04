@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configuración — Conciliación SAP-SIR</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root { --brand: #1F3864; --brand2: #2F5496; }
+    body { background: #f0f2f5; font-family: Arial, sans-serif; }
+    .navbar { background: var(--brand) !important; }
+    .navbar-brand { font-weight: bold; font-size: 1.1rem; }
+    .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,.08); border-radius: 10px; }
+    .card-header { background: var(--brand); color: #fff; border-radius: 10px 10px 0 0 !important; font-weight: 600; }
+    .btn-primary { background: var(--brand2); border-color: var(--brand2); }
+    .btn-primary:hover { background: var(--brand); border-color: var(--brand); }
+    .section-title { font-size: .7rem; font-weight: 700; text-transform: uppercase;
+                     letter-spacing: 1px; color: #888; margin-bottom: 8px; }
+    .cc-row td { vertical-align: middle; padding: 6px 4px; }
+    .form-control-sm, .form-select-sm { font-size: .85rem; }
+    #testResult { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark">
+  <div class="container">
+    <a class="navbar-brand" href="{{ url_for('index') }}">
+      <i class="bi bi-arrow-left-right me-2"></i>Conciliación SAP-SIR
+    </a>
+    <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-arrow-left me-1"></i>Volver
+    </a>
+  </div>
+</nav>
+
+<div class="container py-4" style="max-width:860px">
+
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+  <div class="alert alert-{{ 'danger' if cat == 'danger' else ('warning' if cat == 'warning' else 'success') }} alert-dismissible fade show">
+    {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+
+  <form method="POST" action="{{ url_for('config') }}" id="cfgForm">
+    <input type="hidden" name="action" value="save">
+
+    <!-- ── SMTP ── -->
+    <div class="card mb-4">
+      <div class="card-header"><i class="bi bi-envelope-gear me-2"></i>Configuración SMTP</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold">Servidor SMTP (Host)</label>
+            <input type="text" name="smtp_host" class="form-control form-control-sm"
+                   value="{{ cfg.smtp.get('host','') }}"
+                   placeholder="smtp.tuempresa.com  o  smtp.gmail.com">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small fw-semibold">Puerto</label>
+            <input type="number" name="smtp_port" class="form-control form-control-sm"
+                   value="{{ cfg.smtp.get('port','587') }}" placeholder="587">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold">Usuario / Email remitente</label>
+            <input type="text" name="smtp_user" class="form-control form-control-sm"
+                   value="{{ cfg.smtp.get('user','') }}" placeholder="tu@empresa.com">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold">Contraseña</label>
+            <div class="input-group input-group-sm">
+              <input type="password" name="smtp_password" class="form-control"
+                     id="pwdField" value="{{ cfg.smtp.get('password','') }}">
+              <button class="btn btn-outline-secondary" type="button" onclick="togglePwd()">
+                <i class="bi bi-eye" id="eyeIcon"></i>
+              </button>
+            </div>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold">Dirección "De" (opcional)</label>
+            <input type="text" name="smtp_from" class="form-control form-control-sm"
+                   value="{{ cfg.smtp.get('from_addr','') }}"
+                   placeholder="Conciliaciones &lt;correo@empresa.com&gt;">
+          </div>
+          <div class="col-md-2 d-flex flex-column justify-content-end gap-1 pb-1">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="use_tls" id="chkTls"
+                     {% if cfg.smtp.get('use_tls', False) %}checked{% endif %}>
+              <label class="form-check-label small" for="chkTls">STARTTLS</label>
+            </div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="use_ssl" id="chkSsl"
+                     {% if cfg.smtp.get('use_ssl', False) %}checked{% endif %}>
+              <label class="form-check-label small" for="chkSsl">SSL directo</label>
+            </div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="no_auth" id="chkNoAuth"
+                     {% if cfg.smtp.get('no_auth', False) %}checked{% endif %}
+                     onchange="toggleAuth(this.checked)">
+              <label class="form-check-label small fw-semibold text-warning" for="chkNoAuth">Sin autenticación</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Correos en copia fija -->
+        <div class="row g-3 mt-0">
+          <div class="col-12">
+            <label class="form-label small fw-semibold">
+              Correos en Copia Fija (CC)
+              <span class="text-muted fw-normal">— se incluyen en <u>todos</u> los envíos, separados por coma</span>
+            </label>
+            <input type="text" name="fixed_cc" class="form-control form-control-sm"
+                   value="{{ cfg.get('fixed_cc', [])|join(', ') }}"
+                   placeholder="gerencia@empresa.com, compras@empresa.com, supervisor@empresa.com">
+          </div>
+        </div>
+
+        <!-- Prueba de conexión -->
+        <div class="d-flex align-items-center gap-3 mt-3 pt-3 border-top">
+          <div class="flex-grow-1">
+            <input type="email" class="form-control form-control-sm" id="testAddr"
+                   placeholder="Enviar correo de prueba a... (tu email)">
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testEmail()">
+            <i class="bi bi-send me-1"></i>Probar conexión
+          </button>
+          <div id="testResult" class="small"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Correos por CC ── -->
+    <div class="card mb-4">
+      <div class="card-header">
+        <i class="bi bi-building me-2"></i>Correos por Centro de Costo
+        <span class="ms-2 small fw-normal opacity-75">— un correo por CC para el envío automático</span>
+      </div>
+      <div class="card-body">
+        <div class="text-muted small mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Los centros de costo se populan automáticamente al ejecutar una conciliación.
+          Agrega el email de cada responsable para recibir sus diferencias.
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-sm mb-2" id="ccTable">
+            <thead>
+              <tr style="background:#f0f2f5">
+                <th style="width:120px">Código CC</th>
+                <th style="width:200px">Nombre / Descripción</th>
+                <th>Email del responsable</th>
+                <th style="width:50px"></th>
+              </tr>
+            </thead>
+            <tbody id="ccBody">
+              {% for cc, info in cfg.cost_centers.items() %}
+              {% set email = info.email if info is mapping else info %}
+              {% set name  = info.name  if info is mapping else '' %}
+              <tr class="cc-row">
+                <td><input type="text" name="cc_code"  class="form-control form-control-sm" value="{{ cc }}"></td>
+                <td><input type="text" name="cc_name"  class="form-control form-control-sm" value="{{ name }}" placeholder="Opcional"></td>
+                <td><input type="email" name="cc_email" class="form-control form-control-sm" value="{{ email }}" placeholder="responsable@empresa.com"></td>
+                <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">
+                  <i class="bi bi-trash3"></i>
+                </button></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addRow()">
+          <i class="bi bi-plus-lg me-1"></i>Agregar centro de costo
+        </button>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-floppy2 me-1"></i>Guardar Configuración
+      </button>
+      <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </div>
+
+  </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function toggleAuth(noAuth) {
+  const fields = ['smtp_user','smtp_password','chkTls','chkSsl'];
+  fields.forEach(id => {
+    const el = document.querySelector(`[name=${id}]`) || document.getElementById(id);
+    if (el) el.closest('.col-md-5, .col-md-2, div.form-check')?.style && (el.disabled = noAuth);
+  });
+  document.querySelector('[name=smtp_user]').closest('.col-md-5').style.opacity = noAuth ? '.4' : '1';
+  document.querySelector('[name=smtp_password]').closest('.col-md-5').style.opacity = noAuth ? '.4' : '1';
+}
+// Aplicar estado inicial al cargar
+document.addEventListener('DOMContentLoaded', () => {
+  const chk = document.getElementById('chkNoAuth');
+  if (chk?.checked) toggleAuth(true);
+});
+
+function addRow() {
+  const tbody = document.getElementById('ccBody');
+  const row = document.createElement('tr');
+  row.className = 'cc-row';
+  row.innerHTML = `
+    <td><input type="text"  name="cc_code"  class="form-control form-control-sm" placeholder="K001"></td>
+    <td><input type="text"  name="cc_name"  class="form-control form-control-sm" placeholder="Nombre (opcional)"></td>
+    <td><input type="email" name="cc_email" class="form-control form-control-sm" placeholder="responsable@empresa.com"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">
+      <i class="bi bi-trash3"></i>
+    </button></td>`;
+  tbody.appendChild(row);
+  row.querySelector('input').focus();
+}
+
+function togglePwd() {
+  const f = document.getElementById('pwdField');
+  const icon = document.getElementById('eyeIcon');
+  if (f.type === 'password') { f.type = 'text'; icon.className = 'bi bi-eye-slash'; }
+  else { f.type = 'password'; icon.className = 'bi bi-eye'; }
+}
+
+async function testEmail() {
+  const to = document.getElementById('testAddr').value.trim();
+  const res = document.getElementById('testResult');
+  if (!to) { res.style.display='inline'; res.className='small text-danger'; res.textContent='Ingresa un correo.'; return; }
+
+  // Leer config del formulario
+  const smtp = {
+    host:      document.querySelector('[name=smtp_host]').value,
+    port:      document.querySelector('[name=smtp_port]').value,
+    user:      document.querySelector('[name=smtp_user]').value,
+    password:  document.querySelector('[name=smtp_password]').value,
+    from_addr: document.querySelector('[name=smtp_from]').value,
+    use_tls:   document.getElementById('chkTls').checked,
+    use_ssl:   document.getElementById('chkSsl').checked,
+  };
+
+  res.style.display='inline'; res.className='small text-muted';
+  res.innerHTML='<span class="spinner-border spinner-border-sm"></span> Enviando...';
+
+  try {
+    const r = await fetch('/test-email', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ smtp, to })
+    });
+    const d = await r.json();
+    if (d.ok) { res.className='small text-success'; res.textContent='✔ Correo enviado exitosamente'; }
+    else { res.className='small text-danger'; res.textContent='✘ ' + d.error; }
+  } catch(e) {
+    res.className='small text-danger'; res.textContent='Error de red: ' + e.message;
+  }
+}
+</script>
+</body>
+</html>

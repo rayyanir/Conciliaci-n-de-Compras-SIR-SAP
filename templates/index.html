@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conciliación SAP-SIR</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root { --brand: #1F3864; --brand2: #2F5496; }
+    body { background: #f0f2f5; font-family: Arial, sans-serif; }
+    .navbar { background: var(--brand) !important; }
+    .navbar-brand { font-weight: bold; letter-spacing: .5px; font-size: 1.1rem; }
+    .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,.08); border-radius: 10px; }
+    .card-header { background: var(--brand); color: #fff; border-radius: 10px 10px 0 0 !important; font-weight: 600; }
+    .btn-primary { background: var(--brand2); border-color: var(--brand2); }
+    .btn-primary:hover { background: var(--brand); border-color: var(--brand); }
+    .stat-card { border-radius: 10px; padding: 16px 20px; text-align: center; }
+    .stat-card .num { font-size: 2rem; font-weight: 700; }
+    .stat-card .lbl { font-size: .78rem; color: #555; margin-top: 2px; }
+    .stat-ok   { background: #e2efda; } .stat-ok   .num { color: #2d7a2d; }
+    .stat-warn { background: #fff2cc; } .stat-warn .num { color: #8a6000; }
+    .stat-err  { background: #fce4d6; } .stat-err  .num { color: #c00; }
+    .stat-blue { background: #daeef3; } .stat-blue .num { color: #1a5c7a; }
+    .vendor-badge-pepsi  { background: #1F5C99; color: #fff; }
+    .vendor-badge-larkin { background: #7B2D8B; color: #fff; }
+    .table th { background: var(--brand); color: #fff; font-size: .82rem; white-space: nowrap; }
+    .table td { font-size: .82rem; vertical-align: middle; }
+    .section-label { font-size: .7rem; font-weight: 700; padding: 2px 7px;
+                     border-radius: 10px; display: inline-block; }
+    .drop-zone { border: 2px dashed #adb5bd; border-radius: 8px; padding: 18px;
+                 text-align: center; cursor: pointer; transition: .2s; background: #fafafa; }
+    .drop-zone:hover, .drop-zone.dragover { border-color: var(--brand2); background: #eef2fb; }
+    .drop-zone i { font-size: 1.8rem; color: #adb5bd; display: block; margin-bottom: 6px; }
+    .drop-zone .filename { font-size: .8rem; color: #198754; font-weight: 600; margin-top: 6px; }
+    #sendStatus .badge { font-size: .85rem; }
+    .progress-wrap { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark navbar-expand-lg">
+  <div class="container">
+    <span class="navbar-brand"><i class="bi bi-arrow-left-right me-2"></i>Conciliación SAP-SIR</span>
+    <div class="ms-auto d-flex gap-2 align-items-center">
+      {% if results %}
+      <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>{{ timestamp }}</span>
+      {% endif %}
+      <a href="{{ url_for('config') }}" class="btn btn-sm btn-outline-light">
+        <i class="bi bi-gear me-1"></i>Configuración
+      </a>
+    </div>
+  </div>
+</nav>
+
+<div class="container py-4">
+
+  <!-- Flash messages -->
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+  <div class="alert alert-{{ 'danger' if cat == 'danger' else ('warning' if cat == 'warning' else 'success') }} alert-dismissible fade show">
+    {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+
+  <div class="row g-4">
+
+    <!-- ── Columna izquierda: formulario de carga ── -->
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header"><i class="bi bi-upload me-2"></i>Cargar Archivos</div>
+        <div class="card-body">
+          <form method="POST" action="{{ url_for('compare') }}" enctype="multipart/form-data" id="uploadForm">
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold small text-muted">PERÍODO</label>
+              <input type="text" name="period" class="form-control form-control-sm"
+                     value="{{ period or 'Mayo 2026' }}" placeholder="Ej: Mayo 2026">
+            </div>
+
+            <!-- SAP -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold small">
+                <span class="badge bg-secondary me-1">SAP</span> Compras SAP
+              </label>
+              <div class="drop-zone" onclick="document.getElementById('f_sap').click()"
+                   ondragover="dv(event,this)" ondragleave="dl(this)" ondrop="dp(event,this,'f_sap','name_sap')">
+                <i class="bi bi-file-earmark-spreadsheet"></i>
+                <span class="text-muted small">Arrastra o haz clic para seleccionar</span>
+                <div class="filename" id="name_sap"></div>
+              </div>
+              <input type="file" id="f_sap" name="sap" accept=".xlsx,.xls" class="d-none"
+                     onchange="showName(this,'name_sap')">
+            </div>
+
+            <!-- SIR PEPSI -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold small">
+                <span class="badge vendor-badge-pepsi me-1">PEPSI</span> SIR PEPSI
+              </label>
+              <div class="drop-zone" onclick="document.getElementById('f_pepsi').click()"
+                   ondragover="dv(event,this)" ondragleave="dl(this)" ondrop="dp(event,this,'f_pepsi','name_pepsi')">
+                <i class="bi bi-file-earmark-spreadsheet"></i>
+                <span class="text-muted small">Arrastra o haz clic para seleccionar</span>
+                <div class="filename" id="name_pepsi"></div>
+              </div>
+              <input type="file" id="f_pepsi" name="pepsi" accept=".xlsx,.xls" class="d-none"
+                     onchange="showName(this,'name_pepsi')">
+            </div>
+
+            <!-- SIR LARKIN -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold small">
+                <span class="badge vendor-badge-larkin me-1">LARKIN</span> SIR LARKIN
+              </label>
+              <div class="drop-zone" onclick="document.getElementById('f_larkin').click()"
+                   ondragover="dv(event,this)" ondragleave="dl(this)" ondrop="dp(event,this,'f_larkin','name_larkin')">
+                <i class="bi bi-file-earmark-spreadsheet"></i>
+                <span class="text-muted small">Arrastra o haz clic para seleccionar</span>
+                <div class="filename" id="name_larkin"></div>
+              </div>
+              <input type="file" id="f_larkin" name="larkin" accept=".xlsx,.xls" class="d-none"
+                     onchange="showName(this,'name_larkin')">
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100 mt-2" id="btnRun">
+              <i class="bi bi-play-fill me-1"></i>Ejecutar Conciliación
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Columna derecha: resultados ── -->
+    <div class="col-lg-8">
+      {% if results %}
+
+      <!-- Estadísticas globales -->
+      {% set s = results.summary %}
+      <div class="row g-3 mb-4">
+        {% set total_ok   = s.pepsi.ok + s.larkin.ok %}
+        {% set total_diff = s.pepsi.diff + s.larkin.diff %}
+        {% set total_sir  = s.pepsi.only_sir + s.larkin.only_sir %}
+        {% set total_sap  = s.pepsi.only_sap + s.larkin.only_sap %}
+        <div class="col-6 col-md-3">
+          <div class="stat-card stat-ok">
+            <div class="num">{{ total_ok }}</div>
+            <div class="lbl">Coincidencias OK</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card stat-warn">
+            <div class="num">{{ total_diff }}</div>
+            <div class="lbl">Diferencias de monto</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card stat-err">
+            <div class="num">{{ total_sap }}</div>
+            <div class="lbl">Solo en SAP</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card stat-err">
+            <div class="num">{{ total_sir }}</div>
+            <div class="lbl">Solo en SIR</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Acciones -->
+      <div class="d-flex gap-2 mb-4 flex-wrap">
+        <a href="{{ url_for('download') }}" class="btn btn-success">
+          <i class="bi bi-download me-1"></i>Descargar Excel
+        </a>
+        <button class="btn btn-primary" id="btnSend" onclick="sendEmails()">
+          <i class="bi bi-envelope-fill me-1"></i>Enviar Correos por CC
+          {% if not cc_emails %}
+          <span class="badge bg-warning text-dark ms-1">Configura emails</span>
+          {% endif %}
+        </button>
+      </div>
+
+      <!-- Progreso envío de correos -->
+      <div id="sendStatus" class="mb-3"></div>
+
+      <!-- Tabs con detalle -->
+      <div class="card">
+        <div class="card-header py-2">
+          <ul class="nav nav-tabs card-header-tabs" id="resultTabs">
+            {% if results.matches_diff %}
+            <li class="nav-item">
+              <a class="nav-link active text-warning fw-bold" href="#" data-tab="diff">
+                ⚠ Diferencias <span class="badge bg-warning text-dark">{{ results.matches_diff|length }}</span>
+              </a>
+            </li>
+            {% endif %}
+            {% if results.only_sap %}
+            <li class="nav-item">
+              <a class="nav-link {% if not results.matches_diff %}active{% endif %} text-info" href="#" data-tab="sap">
+                Solo SAP <span class="badge bg-info text-dark">{{ results.only_sap|length }}</span>
+              </a>
+            </li>
+            {% endif %}
+            {% if results.only_sir %}
+            <li class="nav-item">
+              <a class="nav-link text-danger" href="#" data-tab="sir">
+                Solo SIR <span class="badge bg-danger">{{ results.only_sir|length }}</span>
+              </a>
+            </li>
+            {% endif %}
+            <li class="nav-item">
+              <a class="nav-link {% if not results.matches_diff and not results.only_sap and not results.only_sir %}active{% endif %} text-white" href="#" data-tab="ok">
+                ✔ OK <span class="badge bg-success">{{ results.matches_ok|length }}</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <div class="card-body p-0">
+
+          <!-- Diferencias -->
+          <div id="tab-diff" class="tab-pane {% if results.matches_diff %}show{% else %}d-none{% endif %}">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead><tr>
+                  <th>Vendor</th><th>CC</th><th>Últ.5</th>
+                  <th>Ref SAP</th><th>Factura SIR</th>
+                  <th>Monto SAP</th><th>Monto SIR</th><th>Diferencia</th>
+                </tr></thead>
+                <tbody>
+                {% for r in results.matches_diff %}
+                <tr>
+                  <td><span class="section-label badge {{ 'vendor-badge-pepsi' if r.vendor == 'PEPSI' else 'vendor-badge-larkin' }}">{{ r.vendor }}</span></td>
+                  <td><strong>{{ r.cc }}</strong></td>
+                  <td>{{ r.inv5 }}</td>
+                  <td class="font-monospace small">{{ r.sap_ref }}</td>
+                  <td>{{ r.sir_factura }}</td>
+                  <td class="text-end">${{ '%.2f'|format(r.sap_monto or 0) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(r.sir_total or 0) }}</td>
+                  <td class="text-end fw-bold text-warning">${{ '%.2f'|format(r.diferencia or 0) }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Solo SAP -->
+          <div id="tab-sap" class="tab-pane {% if not results.matches_diff and results.only_sap %}show{% else %}d-none{% endif %}">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead><tr>
+                  <th>Vendor</th><th>CC</th><th>Ref SAP</th><th>Últ.5</th><th>Monto SAP</th><th>Descripción</th>
+                </tr></thead>
+                <tbody>
+                {% for r in results.only_sap %}
+                <tr>
+                  <td><span class="section-label badge {{ 'vendor-badge-pepsi' if r.vendor == 'PEPSI' else 'vendor-badge-larkin' }}">{{ r.vendor }}</span></td>
+                  <td><strong>{{ r.cc }}</strong></td>
+                  <td class="font-monospace small">{{ r.ref }}</td>
+                  <td>{{ r.inv5 }}</td>
+                  <td class="text-end">${{ '%.2f'|format(r.sap_monto or 0) }}</td>
+                  <td class="small text-muted">{{ r.texto_cab }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Solo SIR -->
+          <div id="tab-sir" class="tab-pane d-none">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead><tr>
+                  <th>Vendor</th><th>CC</th><th>Factura SIR</th><th>Últ.5</th><th>Monto SIR</th><th>Fecha</th>
+                </tr></thead>
+                <tbody>
+                {% for r in results.only_sir %}
+                <tr>
+                  <td><span class="section-label badge {{ 'vendor-badge-pepsi' if r.vendor == 'PEPSI' else 'vendor-badge-larkin' }}">{{ r.vendor }}</span></td>
+                  <td><strong>{{ r.cc }}</strong></td>
+                  <td>{{ r.sir_factura }}</td>
+                  <td>{{ r.inv5 }}</td>
+                  <td class="text-end">${{ '%.2f'|format(r.sir_total or 0) }}</td>
+                  <td>{{ r.sir_fecha }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- OK -->
+          <div id="tab-ok" class="tab-pane {% if not results.matches_diff and not results.only_sap and not results.only_sir %}show{% else %}d-none{% endif %}">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead><tr>
+                  <th>Vendor</th><th>CC</th><th>Ref SAP</th><th>Factura SIR</th>
+                  <th>Monto SAP</th><th>Monto SIR</th><th>Dif.</th>
+                </tr></thead>
+                <tbody>
+                {% for r in results.matches_ok %}
+                <tr>
+                  <td><span class="section-label badge {{ 'vendor-badge-pepsi' if r.vendor == 'PEPSI' else 'vendor-badge-larkin' }}">{{ r.vendor }}</span></td>
+                  <td><strong>{{ r.cc }}</strong></td>
+                  <td class="font-monospace small">{{ r.sap_ref }}</td>
+                  <td>{{ r.sir_factura }}</td>
+                  <td class="text-end">${{ '%.2f'|format(r.sap_monto or 0) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(r.sir_total or 0) }}</td>
+                  <td class="text-end text-success small">${{ '%.2f'|format(r.diferencia or 0) }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div><!-- card-body -->
+      </div><!-- card -->
+
+      {% else %}
+      <!-- Estado vacío -->
+      <div class="card">
+        <div class="card-body text-center py-5 text-muted">
+          <i class="bi bi-arrow-left-right" style="font-size:3rem;opacity:.3"></i>
+          <p class="mt-3 mb-0">Carga los tres archivos y ejecuta la conciliación<br>para ver los resultados aquí.</p>
+        </div>
+      </div>
+      {% endif %}
+    </div><!-- col -->
+  </div><!-- row -->
+</div><!-- container -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── Drag-and-drop helpers ──────────────────────────────────────────────────
+function showName(input, labelId) {
+  document.getElementById(labelId).textContent = input.files[0]?.name || '';
+}
+function dv(e, el) { e.preventDefault(); el.classList.add('dragover'); }
+function dl(el) { el.classList.remove('dragover'); }
+function dp(e, el, inputId, labelId) {
+  e.preventDefault(); el.classList.remove('dragover');
+  const dt = e.dataTransfer; if (!dt.files.length) return;
+  const input = document.getElementById(inputId);
+  const transfer = new DataTransfer();
+  transfer.items.add(dt.files[0]);
+  input.files = transfer.files;
+  document.getElementById(labelId).textContent = dt.files[0].name;
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-tab]').forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('[data-tab]').forEach(l => l.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('d-none'));
+    link.classList.add('active');
+    const pane = document.getElementById('tab-' + link.dataset.tab);
+    if (pane) { pane.classList.remove('d-none'); pane.classList.add('show'); }
+  });
+});
+
+// ── Formulario: spinner mientras procesa ──────────────────────────────────
+document.getElementById('uploadForm')?.addEventListener('submit', () => {
+  const btn = document.getElementById('btnRun');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Procesando...';
+});
+
+// ── Envío de correos ──────────────────────────────────────────────────────
+async function sendEmails() {
+  const btn = document.getElementById('btnSend');
+  const statusEl = document.getElementById('sendStatus');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Enviando...';
+  statusEl.innerHTML = '';
+
+  try {
+    const res = await fetch('/send-emails', { method: 'POST' });
+    const data = await res.json();
+
+    if (!data.ok) {
+      statusEl.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>${data.error}</div>`;
+    } else {
+      let html = '';
+      if (data.total > 0) {
+        html += `<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>`
+              + `<strong>${data.total}</strong> correo(s) enviado(s): `
+              + data.sent.map(s => `<span class="badge bg-success">${s.cc}</span>`).join(' ')
+              + `</div>`;
+      }
+      if (data.failed > 0) {
+        html += `<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>`
+              + `<strong>${data.failed}</strong> error(es):<br>`
+              + data.errors.map(e => `<small><b>${e.cc}</b> (${e.email}): ${e.error}</small>`).join('<br>')
+              + `</div>`;
+      }
+      if (data.total === 0 && data.failed === 0) {
+        html = '<div class="alert alert-warning">No hay correos configurados. Ve a <a href="/config">Configuración</a>.</div>';
+      }
+      statusEl.innerHTML = html;
+    }
+  } catch(err) {
+    statusEl.innerHTML = `<div class="alert alert-danger">Error de red: ${err.message}</div>`;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-envelope-fill me-1"></i>Enviar Correos por CC';
+}
+</script>
+</body>
+</html>
