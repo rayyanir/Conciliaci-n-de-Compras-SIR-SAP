@@ -112,11 +112,17 @@ def load_config():
 def save_config(cfg):
     smtp_cfg = cfg.get('smtp', {})
     if smtp_cfg:
-        save_smtp_to_env(smtp_cfg)
+        try:
+            save_smtp_to_env(smtp_cfg)
+        except Exception as e:
+            raise RuntimeError(f"Error al escribir en el archivo .env: {e}. Verifique los permisos de escritura del servidor.")
         
     clean_cfg = {k: v for k, v in cfg.items() if k != 'smtp'}
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(clean_cfg, f, indent=2, ensure_ascii=False)
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(clean_cfg, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        raise RuntimeError(f"Error al escribir en el archivo config.json: {e}. Verifique los permisos de escritura del servidor.")
 
 # ── Envío de correo ────────────────────────────────────────────────────────────
 
@@ -356,8 +362,11 @@ def config():
                 cc = cc.strip(); email = email.strip()
                 if cc:
                     cfg['cost_centers'][cc] = {'email': email, 'name': name.strip()}
-            save_config(cfg)
-            flash('Configuración guardada exitosamente.', 'success')
+            try:
+                save_config(cfg)
+                flash('Configuración guardada exitosamente.', 'success')
+            except Exception as e:
+                flash(str(e), 'danger')
             return redirect(url_for('config'))
 
     # Auto-poblar CCs desde últimos resultados
