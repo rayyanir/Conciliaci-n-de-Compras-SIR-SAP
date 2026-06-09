@@ -2,7 +2,7 @@
 reconciliation.py — Lógica de conciliación SAP vs SIR
 Compatible con COMPRAS SAP.xlsx, COMPRAS SIR PEPSI.xlsx, COMPRAS SIR LARKIN.xls
 """
-import struct, zlib, re
+import os, struct, zlib, re
 from xml.etree import ElementTree as ET
 from html.parser import HTMLParser
 from collections import defaultdict
@@ -34,6 +34,13 @@ def _read_zip_entry(filepath, target):
 
 
 def _parse_xlsx_sheet(filepath, sheet_path='xl/worksheets/sheet1.xml'):
+    with open(filepath, 'rb') as f:
+        header = f.read(4)
+    if header != b'\x50\x4b\x03\x04':
+        filename = os.path.basename(filepath)
+        if header.startswith(b'\xd0\xcf\x11\xe0'):
+            raise ValueError(f"El archivo '{filename}' es un Excel antiguo (.xls). Se requiere un archivo Excel moderno (.xlsx).")
+        raise ValueError(f"El archivo '{filename}' no es un archivo Excel (.xlsx) válido.")
     ss_xml = _read_zip_entry(filepath, 'xl/sharedStrings.xml')
     ss = []
     if ss_xml:
@@ -92,8 +99,28 @@ class _TableParser(HTMLParser):
 
 
 def _parse_html_table(filepath):
-    with open(filepath, encoding='utf-8') as f:
-        content = f.read()
+    with open(filepath, 'rb') as f:
+        raw_data = f.read()
+    
+    # Detectar firmas binarias para dar un mensaje de error claro
+    if raw_data.startswith(b'\x50\x4b\x03\x04'):
+        raise ValueError(f"El archivo '{os.path.basename(filepath)}' parece ser un Excel moderno (.xlsx). Se requiere el reporte en formato HTML/xls.")
+    if raw_data.startswith(b'\xd0\xcf\x11\xe0'):
+        raise ValueError(f"El archivo '{os.path.basename(filepath)}' es un archivo de Excel binario (.xls real). El sistema requiere el reporte en formato HTML/xls.")
+    
+    # Intentar decodificar con distintas codificaciones
+    content = None
+    encodings = ['utf-8-sig', 'utf-16', 'cp1252', 'latin-1']
+    for enc in encodings:
+        try:
+            content = raw_data.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+            
+    if content is None:
+        raise ValueError(f"No se pudo decodificar el archivo '{os.path.basename(filepath)}'. Verifique la codificación del archivo.")
+        
     p = _TableParser()
     p.feed(content)
     return p.rows
