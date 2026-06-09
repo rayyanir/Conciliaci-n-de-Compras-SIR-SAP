@@ -177,8 +177,144 @@ def _excel_date(v):
 
 # ── Carga de archivos ──────────────────────────────────────────────────────────
 
+# ── Helpers de hojas y parseo SIR ──────────────────────────────────────────────
+
+def _find_largest_sheet(filepath):
+    with open(filepath, 'rb') as f:
+        data = f.read()
+    
+    sheets = []
+    pos = 0
+    while True:
+        idx = data.find(b'\x50\x4b\x03\x04', pos)
+        if idx == -1:
+            break
+        ver, flags, comp, mtime, mdate, crc, csz, usz, fnlen, exlen = \
+            struct.unpack_from('<5H3I2H', data, idx + 4)
+        name = data[idx + 30:idx + 30 + fnlen].decode('utf-8', 'replace')
+        name_lower = name.lower()
+        if name_lower.startswith('xl/worksheets/sheet') and name_lower.endswith('.xml'):
+            sheets.append(name)
+        pos = idx + 4
+
+    if not sheets:
+        return 'xl/worksheets/sheet1.xml'
+        
+    if len(sheets) == 1:
+        return sheets[0]
+        
+    # Buscar la hoja con más filas contando las etiquetas '<row'
+    largest_sheet = sheets[0]
+    max_rows = -1
+    for sheet_name in sheets:
+        sheet_xml = _read_zip_entry(filepath, sheet_name)
+        if sheet_xml:
+            rows_count = sheet_xml.count(b'<row')
+            if rows_count > max_rows:
+                max_rows = rows_count
+                largest_sheet = sheet_name
+    return largest_sheet
+
+
+def _parse_sir_row(row_cells):
+    if isinstance(row_cells, dict):
+        sorted_cols = sorted(row_cells.keys(), key=lambda c: (len(c), c))
+        vals = [row_cells[c] for c in sorted_cols]
+    else:
+        vals = row_cells
+
+    vals_clean = []
+    for v in vals:
+        if v is None:
+            vals_clean.append("")
+        else:
+            vals_clean.append(str(v).strip())
+
+    row_str = " ".join(vals_clean).upper()
+    if not row_str or "SUB TOTAL" in row_str or "TOTAL GENERAL" in row_str or "DESDE:" in row_str or "CONSOLIDADO" in row_str:
+        return None
+
+    cc = None
+    fecha = ""
+    factura = ""
+    cod = ""
+    cod_dev = ""
+    nums = []
+
+    for v in vals_clean:
+        if not v or v == '-':
+            continue
+            
+        # 1. Centro de Costo (K001, K001C0005994, etc.)
+        m_cc = re.search(r'\b(K\d{3})\b', v)
+        if m_cc:
+            cc = m_cc.group(1)
+            
+        # Verificar códigos de compra y devolución
+        m_cod = re.search(r'\b(C\d{7})\b', v)
+        if m_cod:
+            cod = m_cod.group(1)
+        m_dev = re.search(r'\b(D\d{7})\b', v)
+        if m_dev:
+            cod_dev = m_dev.group(1)
+
+        # 2. Fecha (date serial o date string)
+        is_date_serial = False
+        try:
+            val_f = float(v)
+            if 40000 <= val_f <= 50000 and "." not in v:
+                is_date_serial = True
+        except ValueError:
+            pass
+
+        if is_date_serial:
+            fecha = _excel_date(v)
+        elif re.search(r'\b\d{2}/\d{2}/\d{2,4}\b', v) or re.search(r'\b\d{4}-\d{2}-\d{2}\b', v):
+            fecha = v
+
+        # 3. Factura (6-10 dígitos, excluyendo números seriales de fecha)
+        if re.match(r'^(707\d{7}|\d{2}-\d+|\d{6,10})$', v):
+            try:
+                val_val = int(v)
+                if not (40000 <= val_val <= 50000):
+                    factura = v
+            except ValueError:
+                factura = v
+
+        # Recolectar valores numéricos para total/devolución
+        if v != factura and not is_date_serial:
+            val_num = _parse_num(v, european=True)
+            if val_num is not None:
+                nums.append(val_num)
+
+    total = None
+    devolucion = None
+    if nums:
+        total = nums[-1]
+        if len(nums) > 1:
+            unique_nums = list(dict.fromkeys(nums))
+            if len(unique_nums) > 1:
+                devolucion = unique_nums[-2]
+
+    if cc and (fecha or factura) and total is not None:
+        return {
+            'cc': cc,
+            'factura': factura,
+            'inv5': _last5(factura) if factura else None,
+            'total': total,
+            'devolucion': devolucion,
+            'fecha': fecha,
+            'cod': cod,
+            'cod_dev': cod_dev
+        }
+    return None
+
+
+# ── Carga de archivos ──────────────────────────────────────────────────────────
+
 def _load_sap(path):
-    rows = _parse_xlsx_sheet(path, 'xl/worksheets/sheet1.xml')
+    sheet_name = _find_largest_sheet(path)
+    rows = _parse_xlsx_sheet(path, sheet_name)
     sap_pepsi, sap_larkin = [], []
     for r in rows[1:]:
         if not any(r.values()):
@@ -200,29 +336,13 @@ def _load_sap(path):
 
 
 def _load_sir_pepsi(path):
-    rows = _parse_xlsx_sheet(path, 'xl/worksheets/sheet2.xml')
-    data_start = 0
-    for i, r in enumerate(rows):
-        if 'Centro de Costo' in str(r.get('A', '') or ''):
-            data_start = i + 1
-            break
+    sheet_name = _find_largest_sheet(path)
+    rows = _parse_xlsx_sheet(path, sheet_name)
     result = []
-    last_cc = None
-    for r in rows[data_start:]:
-        cc_raw = r.get('A')
-        if cc_raw and not str(cc_raw).startswith('='):
-            last_cc = str(cc_raw).strip()
-        cc = last_cc
-        if cc is None:
-            continue
-        fac = str(r.get('D') or '').strip()
-        fac5 = _last5(fac)
-        total = _parse_num(r.get('M'))
-        dev = _parse_num(r.get('L'))
-        fecha = _excel_date(r.get('B'))
-        cod = str(r.get('F') or '').strip()
-        result.append({'cc': cc, 'factura': fac, 'inv5': fac5, 'total': total,
-                       'devolucion': dev, 'fecha': fecha, 'cod': cod})
+    for r in rows:
+        parsed = _parse_sir_row(r)
+        if parsed:
+            result.append(parsed)
     return result
 
 
@@ -233,44 +353,19 @@ def _load_sir_larkin(path):
         
     if header == b'\x50\x4b\x03\x04':
         # Es un archivo ZIP/XLSX
-        xlsx_rows = _parse_xlsx_sheet(path, 'xl/worksheets/sheet1.xml')
-        html_rows = []
-        for xr in xlsx_rows:
-            row = []
-            for col in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']:
-                val = xr.get(col)
-                row.append(str(val).strip() if val is not None else '')
-            html_rows.append(row)
+        sheet_name = _find_largest_sheet(path)
+        rows = _parse_xlsx_sheet(path, sheet_name)
     elif header.startswith(b'\xd0\xcf\x11\xe0'):
         raise ValueError("El archivo cargado para Larkin es un archivo de Excel binario antiguo (.xls real). Se requiere el reporte en formato HTML/xls o en formato de Excel moderno (.xlsx).")
     else:
         # Es el formato HTML/xls tradicional
-        html_rows = _parse_html_table(path)
+        rows = _parse_html_table(path)
 
     result = []
-    last_cc = None
-    for r in html_rows[5:]:
-        if 'Sub Total' in ' '.join(r):
-            continue
-        if len(r) < 12:
-            continue
-        cc_raw = r[0].strip()
-        if cc_raw and cc_raw != '-':
-            last_cc = cc_raw
-        cc = last_cc
-        if cc is None:
-            continue
-        fac = r[3].strip()
-        fac5 = _last5(fac)
-        total = _parse_num(r[11], european=True)
-        dev = _parse_num(r[10], european=True)
-        fecha = r[1].strip()
-        if fecha.replace('.', '', 1).isdigit():
-            fecha = _excel_date(fecha)
-        cod = r[4].strip() if len(r) > 4 else ''
-        cod_dev = r[5].strip() if len(r) > 5 else ''
-        result.append({'cc': cc, 'factura': fac, 'inv5': fac5, 'total': total,
-                       'devolucion': dev, 'fecha': fecha, 'cod': cod, 'cod_dev': cod_dev})
+    for r in rows:
+        parsed = _parse_sir_row(r)
+        if parsed:
+            result.append(parsed)
     return result
 
 
