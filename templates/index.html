@@ -190,21 +190,21 @@
           <ul class="nav nav-tabs card-header-tabs" id="resultTabs">
             {% if results.matches_diff %}
             <li class="nav-item">
-              <a class="nav-link active text-warning fw-bold" href="#" data-tab="diff">
+              <a class="nav-link {% if results.matches_diff %}active{% endif %} text-warning fw-bold" href="#" data-tab="diff">
                 ⚠ Diferencias <span class="badge bg-warning text-dark">{{ results.matches_diff|length }}</span>
               </a>
             </li>
             {% endif %}
             {% if results.only_sap %}
             <li class="nav-item">
-              <a class="nav-link {% if not results.matches_diff %}active{% endif %} text-info" href="#" data-tab="sap">
+              <a class="nav-link {% if not results.matches_diff and results.only_sap %}active{% endif %} text-info" href="#" data-tab="sap">
                 Solo SAP <span class="badge bg-info text-dark">{{ results.only_sap|length }}</span>
               </a>
             </li>
             {% endif %}
             {% if results.only_sir %}
             <li class="nav-item">
-              <a class="nav-link text-danger" href="#" data-tab="sir">
+              <a class="nav-link {% if not results.matches_diff and not results.only_sap and results.only_sir %}active{% endif %} text-danger" href="#" data-tab="sir">
                 Solo SIR <span class="badge bg-danger">{{ results.only_sir|length }}</span>
               </a>
             </li>
@@ -269,7 +269,7 @@
           </div>
 
           <!-- Solo SIR -->
-          <div id="tab-sir" class="tab-pane d-none">
+          <div id="tab-sir" class="tab-pane {% if not results.matches_diff and not results.only_sap and results.only_sir %}show{% else %}d-none{% endif %}">
             <div class="table-responsive">
               <table class="table table-hover mb-0">
                 <thead><tr>
