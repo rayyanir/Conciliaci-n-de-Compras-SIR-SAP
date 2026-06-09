@@ -245,16 +245,16 @@ def _parse_sir_row(row_cells):
         if not v or v == '-':
             continue
             
-        # 1. Centro de Costo (K001, K001C0005994, etc.)
-        m_cc = re.search(r'\b(K\d{3})\b', v)
+        # 1. Centro de Costo (K001, K001C0005994, etc. - sin límites de palabra \b para tolerar uniones)
+        m_cc = re.search(r'(K\d{3})', v)
         if m_cc:
             cc = m_cc.group(1)
             
         # Verificar códigos de compra y devolución
-        m_cod = re.search(r'\b(C\d{7})\b', v)
+        m_cod = re.search(r'(C\d{7})', v)
         if m_cod:
             cod = m_cod.group(1)
-        m_dev = re.search(r'\b(D\d{7})\b', v)
+        m_dev = re.search(r'(D\d{7})', v)
         if m_dev:
             cod_dev = m_dev.group(1)
 
@@ -269,7 +269,7 @@ def _parse_sir_row(row_cells):
 
         if is_date_serial:
             fecha = _excel_date(v)
-        elif re.search(r'\b\d{2}/\d{2}/\d{2,4}\b', v) or re.search(r'\b\d{4}-\d{2}-\d{2}\b', v):
+        elif re.search(r'\d{2}/\d{2}/\d{2,4}', v) or re.search(r'\d{4}-\d{2}-\d{2}', v):
             fecha = v
 
         # 3. Factura (6-10 dígitos, excluyendo números seriales de fecha)
