@@ -24,13 +24,28 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app = Flask(__name__)
 app.secret_key = 'conciliacion-sap-sir-kfc-2026'
 
-# Estado global (una sesión a la vez — herramienta interna)
-_state = {
-    'results':    None,
-    'excel_path': None,
-    'period':     None,
-    'timestamp':  None
-}
+STATE_FILE = os.path.join(UPLOAD_DIR, 'state.json')
+
+def _load_state():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        'results':    None,
+        'excel_path': None,
+        'period':     None,
+        'timestamp':  None
+    }
+
+def _save_state(state):
+    try:
+        with open(STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        traceback.print_exc()
 
 ALLOWED_EXT = {'xlsx', 'xls'}
 
@@ -266,10 +281,11 @@ def _build_email_html(cc, cc_data, period):
 def index():
     cfg = load_config()
     cc_emails = cfg.get('cost_centers', {})
+    state = _load_state()
     return render_template('index.html',
-                           results=_state['results'],
-                           period=_state['period'],
-                           timestamp=_state['timestamp'],
+                           results=state['results'],
+                           period=state['period'],
+                           timestamp=state['timestamp'],
                            cc_emails=cc_emails)
 
 
@@ -313,10 +329,13 @@ def compare():
         traceback.print_exc()
         return redirect(url_for('index'))
 
-    _state['results']    = results
-    _state['excel_path'] = excel_path
-    _state['period']     = period
-    _state['timestamp']  = datetime.now().strftime('%d/%m/%Y %H:%M')
+    state = {
+        'results':    results,
+        'excel_path': excel_path,
+        'period':     period,
+        'timestamp':  datetime.now().strftime('%d/%m/%Y %H:%M')
+    }
+    _save_state(state)
 
     flash(f'Conciliación completada correctamente — {period}', 'success')
     return redirect(url_for('index'))
@@ -324,11 +343,12 @@ def compare():
 
 @app.route('/download')
 def download():
-    if not _state['excel_path'] or not os.path.exists(_state['excel_path']):
+    state = _load_state()
+    if not state['excel_path'] or not os.path.exists(state['excel_path']):
         flash('No hay reporte generado. Ejecuta la conciliación primero.', 'warning')
         return redirect(url_for('index'))
-    period_slug = (_state['period'] or 'reporte').replace(' ', '_')
-    return send_file(_state['excel_path'],
+    period_slug = (state['period'] or 'reporte').replace(' ', '_')
+    return send_file(state['excel_path'],
                      as_attachment=True,
                      download_name=f'Conciliacion_SAP_SIR_{period_slug}.xlsx')
 
@@ -370,7 +390,8 @@ def config():
             return redirect(url_for('config'))
 
     # Auto-poblar CCs desde últimos resultados
-    all_ccs = get_all_cost_centers(_state['results']) if _state['results'] else []
+    state = _load_state()
+    all_ccs = get_all_cost_centers(state['results']) if state['results'] else []
     existing = cfg.get('cost_centers', {})
     for cc in all_ccs:
         if cc not in existing:
@@ -382,14 +403,15 @@ def config():
 
 @app.route('/send-emails', methods=['POST'])
 def send_emails():
-    if not _state['results']:
+    state = _load_state()
+    if not state['results']:
         return jsonify({'ok': False, 'error': 'No hay resultados. Ejecuta la conciliación primero.'})
 
     cfg      = load_config()
     smtp_cfg = cfg.get('smtp', {})
     cc_cfg   = cfg.get('cost_centers', {})
-    results  = _state['results']
-    period   = _state['period'] or 'Sin especificar'
+    results  = state['results']
+    period   = state['period'] or 'Sin especificar'
 
     if not smtp_cfg.get('host'):
         return jsonify({'ok': False, 'error': 'Configura el servidor SMTP en la página de Configuración.'})
@@ -447,9 +469,10 @@ def test_email():
 
 @app.route('/results-json')
 def results_json():
-    if not _state['results']:
+    state = _load_state()
+    if not state['results']:
         return jsonify({})
-    return jsonify(_state['results'])
+    return jsonify(state['results'])
 
 
 # ── Arranque ───────────────────────────────────────────────────────────────────
