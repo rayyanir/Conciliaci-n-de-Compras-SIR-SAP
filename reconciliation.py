@@ -102,12 +102,6 @@ def _parse_html_table(filepath):
     with open(filepath, 'rb') as f:
         raw_data = f.read()
     
-    # Detectar firmas binarias para dar un mensaje de error claro
-    if raw_data.startswith(b'\x50\x4b\x03\x04'):
-        raise ValueError(f"El archivo '{os.path.basename(filepath)}' parece ser un Excel moderno (.xlsx). Se requiere el reporte en formato HTML/xls.")
-    if raw_data.startswith(b'\xd0\xcf\x11\xe0'):
-        raise ValueError(f"El archivo '{os.path.basename(filepath)}' es un archivo de Excel binario (.xls real). El sistema requiere el reporte en formato HTML/xls.")
-    
     # Intentar decodificar con distintas codificaciones
     content = None
     encodings = ['utf-8-sig', 'utf-16', 'cp1252', 'latin-1']
@@ -139,7 +133,7 @@ def _parse_num(v, european=False):
     if v is None or str(v).strip() in ('-', '', '–'):
         return None
     s = str(v).strip()
-    if european:
+    if european and ',' in s:
         s = s.replace('.', '').replace(',', '.')
     try:
         return round(float(s), 2)
@@ -206,7 +200,26 @@ def _load_sir_pepsi(path):
 
 
 def _load_sir_larkin(path):
-    html_rows = _parse_html_table(path)
+    # Detectar el formato del archivo por sus primeros bytes
+    with open(path, 'rb') as f:
+        header = f.read(4)
+        
+    if header == b'\x50\x4b\x03\x04':
+        # Es un archivo ZIP/XLSX
+        xlsx_rows = _parse_xlsx_sheet(path, 'xl/worksheets/sheet1.xml')
+        html_rows = []
+        for xr in xlsx_rows:
+            row = []
+            for col in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']:
+                val = xr.get(col)
+                row.append(str(val).strip() if val is not None else '')
+            html_rows.append(row)
+    elif header.startswith(b'\xd0\xcf\x11\xe0'):
+        raise ValueError("El archivo cargado para Larkin es un archivo de Excel binario antiguo (.xls real). Se requiere el reporte en formato HTML/xls o en formato de Excel moderno (.xlsx).")
+    else:
+        # Es el formato HTML/xls tradicional
+        html_rows = _parse_html_table(path)
+
     result = []
     last_cc = None
     for r in html_rows[5:]:
@@ -225,6 +238,8 @@ def _load_sir_larkin(path):
         total = _parse_num(r[11], european=True)
         dev = _parse_num(r[10], european=True)
         fecha = r[1].strip()
+        if fecha.replace('.', '', 1).isdigit():
+            fecha = _excel_date(fecha)
         cod = r[4].strip() if len(r) > 4 else ''
         cod_dev = r[5].strip() if len(r) > 5 else ''
         result.append({'cc': cc, 'factura': fac, 'inv5': fac5, 'total': total,
