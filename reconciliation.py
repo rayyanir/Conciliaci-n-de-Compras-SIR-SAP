@@ -35,19 +35,46 @@ def _read_zip_entry(filepath, target):
 
 def _parse_xlsx_sheet(filepath, sheet_path='xl/worksheets/sheet1.xml'):
     with open(filepath, 'rb') as f:
-        header = f.read(4)
-    if header != b'\x50\x4b\x03\x04':
+        data = f.read()
+    
+    if not data.startswith(b'\x50\x4b\x03\x04'):
         filename = os.path.basename(filepath)
-        if header.startswith(b'\xd0\xcf\x11\xe0'):
+        if data.startswith(b'\xd0\xcf\x11\xe0'):
             raise ValueError(f"El archivo '{filename}' es un Excel antiguo (.xls). Se requiere un archivo Excel moderno (.xlsx).")
-        raise ValueError(f"El archivo '{filename}' no es un archivo Excel (.xlsx) válido.")
+        raise ValueError(f"El archivo '{filename}' no es un archivo Excel (.xlsx) válido o está dañado.")
+
+    # Buscar todas las hojas disponibles en el archivo ZIP para tolerancia a fallos
+    sheets = []
+    pos = 0
+    while True:
+        idx = data.find(b'\x50\x4b\x03\x04', pos)
+        if idx == -1:
+            break
+        ver, flags, comp, mtime, mdate, crc, csz, usz, fnlen, exlen = \
+            struct.unpack_from('<5H3I2H', data, idx + 4)
+        name = data[idx + 30:idx + 30 + fnlen].decode('utf-8', 'replace')
+        name_lower = name.lower()
+        if name_lower.startswith('xl/worksheets/sheet') and name_lower.endswith('.xml'):
+            sheets.append(name)
+        pos = idx + 4
+
+    actual_sheet_path = sheet_path
+    if sheets:
+        sheets_lower = [s.lower() for s in sheets]
+        if sheet_path.lower() in sheets_lower:
+            actual_sheet_path = sheets[sheets_lower.index(sheet_path.lower())]
+        else:
+            # Fallback a la primera hoja disponible
+            sheets_sorted = sorted(sheets, key=lambda s: [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', s.lower())])
+            actual_sheet_path = sheets_sorted[0]
+
     ss_xml = _read_zip_entry(filepath, 'xl/sharedStrings.xml')
     ss = []
     if ss_xml:
         root = ET.fromstring(ss_xml)
         for si in root.findall(f'{{{NS}}}si'):
             ss.append(''.join(t.text or '' for t in si.iter(f'{{{NS}}}t')))
-    sheet_xml = _read_zip_entry(filepath, sheet_path)
+    sheet_xml = _read_zip_entry(filepath, actual_sheet_path)
     if not sheet_xml:
         return []
     root = ET.fromstring(sheet_xml)
