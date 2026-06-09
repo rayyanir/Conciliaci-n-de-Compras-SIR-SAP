@@ -31,8 +31,9 @@ def _load_state():
         try:
             with open(STATE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            traceback.print_exc()
+            flash(f"Error crítico al leer el archivo de estado: {e}", "danger")
     return {
         'results':    None,
         'excel_path': None,
@@ -46,6 +47,7 @@ def _save_state(state):
             json.dump(state, f, ensure_ascii=False, indent=2)
     except Exception as e:
         traceback.print_exc()
+        flash(f"Error crítico al escribir el archivo de estado: {e}", "danger")
 
 ALLOWED_EXT = {'xlsx', 'xls'}
 
