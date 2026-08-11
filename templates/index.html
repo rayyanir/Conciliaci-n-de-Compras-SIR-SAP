@@ -35,6 +35,10 @@
     .drop-zone .filename { font-size: .8rem; color: #198754; font-weight: 600; margin-top: 6px; }
     #sendStatus .badge { font-size: .85rem; }
     .progress-wrap { display: none; }
+    /* Al seleccionar una pestaña, Bootstrap le pone fondo blanco; las pestañas con
+       texto blanco (tab-white) se volvían invisibles — forzamos texto oscuro solo
+       cuando esa pestaña queda activa. */
+    #resultTabs .nav-link.tab-white.active { color: var(--brand) !important; }
   </style>
 </head>
 <body>
@@ -190,30 +194,46 @@
           <ul class="nav nav-tabs card-header-tabs" id="resultTabs">
             {% if results.matches_diff %}
             <li class="nav-item">
-              <a class="nav-link {% if results.matches_diff %}active{% endif %} text-warning fw-bold" href="#" data-tab="diff">
+              <a class="nav-link active text-warning fw-bold" href="#" data-tab="diff">
                 ⚠ Diferencias <span class="badge bg-warning text-dark">{{ results.matches_diff|length }}</span>
               </a>
             </li>
             {% endif %}
             {% if results.only_sap %}
             <li class="nav-item">
-              <a class="nav-link {% if not results.matches_diff and results.only_sap %}active{% endif %} text-info" href="#" data-tab="sap">
+              <a class="nav-link {% if not results.matches_diff %}active{% endif %} text-info" href="#" data-tab="sap">
                 Solo SAP <span class="badge bg-info text-dark">{{ results.only_sap|length }}</span>
               </a>
             </li>
             {% endif %}
             {% if results.only_sir %}
             <li class="nav-item">
-              <a class="nav-link {% if not results.matches_diff and not results.only_sap and results.only_sir %}active{% endif %} text-danger" href="#" data-tab="sir">
+              <a class="nav-link text-danger" href="#" data-tab="sir">
                 Solo SIR <span class="badge bg-danger">{{ results.only_sir|length }}</span>
               </a>
             </li>
             {% endif %}
             <li class="nav-item">
-              <a class="nav-link {% if not results.matches_diff and not results.only_sap and not results.only_sir %}active{% endif %} text-white" href="#" data-tab="ok">
+              <a class="nav-link {% if not results.matches_diff and not results.only_sap and not results.only_sir %}active{% endif %} text-white tab-white" href="#" data-tab="ok">
                 ✔ OK <span class="badge bg-success">{{ results.matches_ok|length }}</span>
               </a>
             </li>
+            {% if store_totals %}
+            <li class="nav-item">
+              <a class="nav-link text-white tab-white" href="#" data-tab="totales-pepsi">
+                <i class="bi bi-shop me-1"></i>Totales x Tienda SAP-Pepsi
+                {% set n_diff_p = store_totals|selectattr('con_diferencia_pepsi')|list|length %}
+                {% if n_diff_p %}<span class="badge bg-danger">{{ n_diff_p }}</span>{% else %}<span class="badge bg-success">0</span>{% endif %}
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link text-white tab-white" href="#" data-tab="totales-larkin">
+                <i class="bi bi-shop me-1"></i>Totales x Tienda SAP-Larkin
+                {% set n_diff_l = store_totals|selectattr('con_diferencia_larkin')|list|length %}
+                {% if n_diff_l %}<span class="badge bg-danger">{{ n_diff_l }}</span>{% else %}<span class="badge bg-success">0</span>{% endif %}
+              </a>
+            </li>
+            {% endif %}
           </ul>
         </div>
         <div class="card-body p-0">
@@ -269,7 +289,7 @@
           </div>
 
           <!-- Solo SIR -->
-          <div id="tab-sir" class="tab-pane {% if not results.matches_diff and not results.only_sap and results.only_sir %}show{% else %}d-none{% endif %}">
+          <div id="tab-sir" class="tab-pane d-none">
             <div class="table-responsive">
               <table class="table table-hover mb-0">
                 <thead><tr>
@@ -315,6 +335,96 @@
               </table>
             </div>
           </div>
+
+          <!-- Totales por Tienda: SAP vs Pepsi -->
+          {% if store_totals %}
+          <div id="tab-totales-pepsi" class="tab-pane d-none">
+            <div class="p-3 pb-0">
+              <p class="text-muted small mb-2">
+                Compara, por tienda, la porción de compras SAP atribuible a Pepsi contra el total registrado en SIR Pepsi
+                (restando notas de crédito/devoluciones). No valida si la factura existe en la otra plataforma — solo compara totales globales.
+              </p>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead><tr>
+                  <th>Tienda</th><th class="text-end">Total SAP</th><th class="text-end">Total Pepsi</th>
+                  <th class="text-end">Diferencia</th><th class="text-center">Estado</th>
+                </tr></thead>
+                <tbody>
+                {% for r in store_totals %}
+                <tr class="{{ 'table-danger' if r.con_diferencia_pepsi else '' }}">
+                  <td><strong>{{ r.cc }}</strong></td>
+                  <td class="text-end">${{ '%.2f'|format(r.total_sap_pepsi) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(r.total_pepsi) }}</td>
+                  <td class="text-end fw-bold {{ 'text-danger' if r.con_diferencia_pepsi else 'text-success' }}">${{ '%.2f'|format(r.diferencia_pepsi) }}</td>
+                  <td class="text-center">
+                    {% if r.con_diferencia_pepsi %}
+                    <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Diferencia</span>
+                    {% else %}
+                    <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Cuadra</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                <tr class="table-primary fw-bold">
+                  <td>TOTAL</td>
+                  <td class="text-end">${{ '%.2f'|format(store_totals|sum(attribute='total_sap_pepsi')) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(store_totals|sum(attribute='total_pepsi')) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(store_totals|sum(attribute='diferencia_pepsi')) }}</td>
+                  <td></td>
+                </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <!-- Totales por Tienda: SAP vs Larkin -->
+          <div id="tab-totales-larkin" class="tab-pane d-none">
+            <div class="p-3 pb-0">
+              <p class="text-muted small mb-2">
+                Compara, por tienda, la porción de compras SAP atribuible a Larkin contra el total registrado en SIR Larkin
+                (restando notas de crédito/devoluciones). No valida si la factura existe en la otra plataforma — solo compara totales globales.
+              </p>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead><tr>
+                  <th>Tienda</th><th class="text-end">Total SAP</th><th class="text-end">Total Larkin</th>
+                  <th class="text-end">Diferencia</th><th class="text-center">Estado</th>
+                </tr></thead>
+                <tbody>
+                {% for r in store_totals %}
+                <tr class="{{ 'table-danger' if r.con_diferencia_larkin else '' }}">
+                  <td><strong>{{ r.cc }}</strong></td>
+                  <td class="text-end">${{ '%.2f'|format(r.total_sap_larkin) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(r.total_larkin) }}</td>
+                  <td class="text-end fw-bold {{ 'text-danger' if r.con_diferencia_larkin else 'text-success' }}">${{ '%.2f'|format(r.diferencia_larkin) }}</td>
+                  <td class="text-center">
+                    {% if r.con_diferencia_larkin %}
+                    <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Diferencia</span>
+                    {% else %}
+                    <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Cuadra</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                <tr class="table-primary fw-bold">
+                  <td>TOTAL</td>
+                  <td class="text-end">${{ '%.2f'|format(store_totals|sum(attribute='total_sap_larkin')) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(store_totals|sum(attribute='total_larkin')) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(store_totals|sum(attribute='diferencia_larkin')) }}</td>
+                  <td></td>
+                </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+          {% endif %}
 
         </div><!-- card-body -->
       </div><!-- card -->
