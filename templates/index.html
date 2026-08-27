@@ -261,6 +261,14 @@
                 </tr>
                 {% endfor %}
                 </tbody>
+                <tfoot>
+                <tr class="table-warning fw-bold">
+                  <td colspan="5">TOTAL</td>
+                  <td class="text-end">${{ '%.2f'|format(results.matches_diff|sum(attribute='sap_monto')) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(results.matches_diff|sum(attribute='sir_total')) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(results.matches_diff|sum(attribute='diferencia')) }}</td>
+                </tr>
+                </tfoot>
               </table>
             </div>
           </div>
@@ -284,6 +292,13 @@
                 </tr>
                 {% endfor %}
                 </tbody>
+                <tfoot>
+                <tr class="table-info fw-bold">
+                  <td colspan="4">TOTAL</td>
+                  <td class="text-end">${{ '%.2f'|format(results.only_sap|sum(attribute='sap_monto')) }}</td>
+                  <td></td>
+                </tr>
+                </tfoot>
               </table>
             </div>
           </div>
@@ -307,6 +322,13 @@
                 </tr>
                 {% endfor %}
                 </tbody>
+                <tfoot>
+                <tr class="table-danger fw-bold">
+                  <td colspan="4">TOTAL</td>
+                  <td class="text-end">${{ '%.2f'|format(results.only_sir|sum(attribute='sir_total')) }}</td>
+                  <td></td>
+                </tr>
+                </tfoot>
               </table>
             </div>
           </div>
@@ -332,6 +354,14 @@
                 </tr>
                 {% endfor %}
                 </tbody>
+                <tfoot>
+                <tr class="table-success fw-bold">
+                  <td colspan="4">TOTAL</td>
+                  <td class="text-end">${{ '%.2f'|format(results.matches_ok|sum(attribute='sap_monto')) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(results.matches_ok|sum(attribute='sir_total')) }}</td>
+                  <td class="text-end">${{ '%.2f'|format(results.matches_ok|sum(attribute='diferencia')) }}</td>
+                </tr>
+                </tfoot>
               </table>
             </div>
           </div>

@@ -12,7 +12,7 @@ from flask import (Flask, render_template, request, redirect,
                    url_for, send_file, flash, jsonify, session)
 from werkzeug.utils import secure_filename
 
-from reconciliation import run_reconciliation, generate_excel, get_all_cost_centers
+from reconciliation import run_reconciliation, generate_excel, get_all_cost_centers, get_store_totals
 
 # ── Configuración ──────────────────────────────────────────────────────────────
 
@@ -35,10 +35,11 @@ def _load_state():
             traceback.print_exc()
             flash(f"Error crítico al leer el archivo de estado: {e}", "danger")
     return {
-        'results':    None,
-        'excel_path': None,
-        'period':     None,
-        'timestamp':  None
+        'results':      None,
+        'store_totals': None,
+        'excel_path':   None,
+        'period':       None,
+        'timestamp':    None
     }
 
 def _save_state(state):
@@ -284,10 +285,25 @@ def index():
     cfg = load_config()
     cc_emails = cfg.get('cost_centers', {})
     state = _load_state()
+
+    store_totals = state.get('store_totals')
+    if not store_totals and state.get('results'):
+        sap_path    = os.path.join(UPLOAD_DIR, 'sap_upload.xlsx')
+        pepsi_path  = os.path.join(UPLOAD_DIR, 'pepsi_upload.xlsx')
+        larkin_path = os.path.join(UPLOAD_DIR, 'larkin_upload.xls')
+        if os.path.exists(sap_path) and os.path.exists(pepsi_path) and os.path.exists(larkin_path):
+            try:
+                store_totals = get_store_totals(sap_path, pepsi_path, larkin_path)
+                state['store_totals'] = store_totals
+                _save_state(state)
+            except Exception:
+                pass
+
     return render_template('index.html',
-                           results=state['results'],
-                           period=state['period'],
-                           timestamp=state['timestamp'],
+                           results=state.get('results'),
+                           store_totals=store_totals,
+                           period=state.get('period'),
+                           timestamp=state.get('timestamp'),
                            cc_emails=cc_emails)
 
 
@@ -317,6 +333,7 @@ def compare():
 
     try:
         results = run_reconciliation(sap_path, pepsi_path, larkin_path)
+        store_totals = get_store_totals(sap_path, pepsi_path, larkin_path)
     except Exception as e:
         flash(f'Error al procesar los archivos: {e}', 'danger')
         traceback.print_exc()
@@ -325,17 +342,18 @@ def compare():
     period_slug = period.replace(' ', '_').replace('/', '-')
     excel_path  = os.path.join(UPLOAD_DIR, f'Conciliacion_{period_slug}.xlsx')
     try:
-        generate_excel(results, excel_path, period)
+        generate_excel(results, excel_path, period, store_totals=store_totals)
     except Exception as e:
         flash(f'Error al generar el Excel: {e}', 'danger')
         traceback.print_exc()
         return redirect(url_for('index'))
 
     state = {
-        'results':    results,
-        'excel_path': excel_path,
-        'period':     period,
-        'timestamp':  datetime.now().strftime('%d/%m/%Y %H:%M')
+        'results':      results,
+        'store_totals': store_totals,
+        'excel_path':   excel_path,
+        'period':       period,
+        'timestamp':    datetime.now().strftime('%d/%m/%Y %H:%M')
     }
     _save_state(state)
 
